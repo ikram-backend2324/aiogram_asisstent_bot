@@ -135,10 +135,10 @@ async def enter_photo(message: types.Message, state: FSMContext):
     user_message = data.get('message')
     photo = data.get('Photo')
 
-    await bot.send_photo(chat_id=channel_id, photo=downloaded_file, caption=f"First Name: <b>{first_name}</b>"
-                                                                            f"Last Name: <b>{last_name}</b>"
-                                                                            f"Phone Number: <b>{phone_number}</b>"
-                                                                            f"Message: <b>{user_message}</b>"
+    await bot.send_photo(chat_id=channel_id, photo=downloaded_file, caption=f"First Name: <b>{first_name}</b>\n"
+                                                                            f"Last Name: <b>{last_name}</b>\n"
+                                                                            f"Phone Number: <b>{phone_number}</b>\n"
+                                                                            f"Message: <b>{user_message}</b>\n"
                                                                             f"Photo: <b>{photo}</b>", parse_mode='HTML')
     await create_new_user(state)
     await state.finish()
