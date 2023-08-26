@@ -3,8 +3,12 @@ from aiogram import Dispatcher, Bot, executor, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram.dispatcher.handler import CancelHandler
+from aiogram.dispatcher.middlewares import BaseMiddleware
+from typing import List, Union
 import mysql.connector
 import random
+import asyncio
 
 bot = Bot(TOKEN)
 storage = MemoryStorage()
@@ -20,13 +24,19 @@ db = mysql.connector.Connect(
 
 cursor = db.cursor()
 
+# class PhotosState(StatesGroup):
+#     array_photos = State()
+
+
+fake_state = []
+
 
 class UserStatesGroup(StatesGroup):
     first_name = State()
     last_name = State()
     phone_number = State()
     message = State()
-
+    choice = State()
     Photo = State()
 
 
@@ -64,6 +74,7 @@ async def enter_first_name(message: types.Message, state: FSMContext):
     async with state.proxy() as data:
         data['first_name'] = message.text
         print(data)
+    fake_state.append(message.text)
     await UserStatesGroup.next()
     await bot.send_message(chat_id, "Enter Your Last Name")
 
@@ -74,6 +85,7 @@ async def enter_last_name(message: types.Message, state: FSMContext):
     async with state.proxy() as data:
         data['last_name'] = message.text
         print(data)
+    fake_state.append(message.text)
     await UserStatesGroup.next()
     await bot.send_message(chat_id, "Enter Your Phone Number\nIt should start with (+998)")
 
@@ -89,6 +101,7 @@ async def enter_phone_number(message: types.Message, state: FSMContext):
         async with state.proxy() as data:
             data['phone_number'] = message.text
             print(data)
+        fake_state.append(message.text)
         await UserStatesGroup.next()
         await bot.send_message(chat_id, "Enter Your Message")
     except ValueError:
@@ -101,13 +114,24 @@ async def enter_message(message: types.Message, state: FSMContext):
     async with state.proxy() as data:
         data['message'] = message.text
         print(data)
+    fake_state.append(message.text)
     await UserStatesGroup.next()
-    await bot.send_message(chat_id, "Send Your Photo")
+    await bot.send_message(chat_id, "Do you want to enter single photo?(yes/no)")
+
+
+@dp.message_handler(state=UserStatesGroup.choice)
+async def enter_photo(message: types.Message, state: FSMContext):
+    if message.text == 'yes':
+        await UserStatesGroup.next()
+        await bot.send_message(message.chat.id, "Send your photo")
+    else:
+        await state.finish()
+        await bot.send_message(message.chat.id, "Send your photo's")
 
 
 @dp.message_handler(lambda message: not message.photo, state=UserStatesGroup.Photo)
 async def check_photo(message: types.Message):
-    await message.reply("It's not a photo!.title()")
+    await message.reply("It's not a photo!".title())
 
 
 @dp.message_handler(content_types=['photo'], state=UserStatesGroup.Photo)
@@ -146,5 +170,74 @@ async def enter_photo(message: types.Message, state: FSMContext):
                            reply_markup=types.ReplyKeyboardRemove())
 
 
+class AlbumMiddleware(BaseMiddleware):
+    """This middleware is for capturing media groups."""
+
+    album_data: dict = {}
+
+    def __init__(self, latency: Union[int, float] = 0.01):
+        """
+        You can provide custom latency to make sure
+        albums are handled properly in highload.
+        """
+        self.latency = latency
+        super().__init__()
+
+    async def on_process_message(self, message: types.Message, data: dict):
+        if not message.media_group_id:
+            return
+
+        try:
+            self.album_data[message.media_group_id].append(message)
+            raise CancelHandler()  # Tell aiogram to cancel handler for this group element
+        except KeyError:
+            self.album_data[message.media_group_id] = [message]
+            await asyncio.sleep(self.latency)
+
+            message.conf["is_last"] = True
+            data["album"] = self.album_data[message.media_group_id]
+
+    async def on_post_process_message(self, message: types.Message, result: dict, data: dict):
+        """Clean up after handling our album."""
+        if message.media_group_id and message.conf.get("is_last"):
+            del self.album_data[message.media_group_id]
+
+
+@dp.message_handler(content_types=types.ContentType.ANY)
+async def handle_albums(message: types.Message, album: List[types.Message]):
+    get_channel_id = await bot.get_chat('@ixiyasov')
+    channel_id = get_channel_id.id
+
+    """This handler will receive a complete album of any type."""
+
+    first_name = fake_state[0]
+    last_name = fake_state[1]
+    phone_number = fake_state[2]
+    user_message = fake_state[3]
+
+    media_group = types.MediaGroup()
+    for obj in album:
+        if obj.photo:
+            file_id = obj.photo[-1].file_id
+        else:
+            file_id = obj[obj.content_type].file_id
+
+        try:
+            # We can also add a caption to each file by specifying `"caption": "text"`
+            media_group.attach({"media": file_id, "type": obj.content_type, "caption": f"FirstName: {first_name}\n"
+                                                                                       f"LastName: {last_name}\n"
+                                                                                       f"PhoneNumber: {phone_number}\n"
+                                                                                       f"UserMessage: {user_message}"})
+        except ValueError:
+            return await message.answer("This type of album is not supported by aiogram.")
+
+    await bot.send_media_group(chat_id=channel_id, media=media_group)
+
+    # await bot.send_message(chat_id=channel_id, text=f"First Name: <b>{first_name}</b>\n"
+    #                                                     f"Last Name: <b>{last_name}</b>\n"
+    #                                                 f"Phone Number: <b>{phone_number}</b>\n"
+    #                                                 f"Message: <b>{user_message}</b>\n", parse_mode='HTML')
+
 if __name__ == '__main__':
+    dp.middleware.setup(AlbumMiddleware())
     executor.start_polling(dp)
