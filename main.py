@@ -1,3 +1,6 @@
+import os
+import shutil
+
 from TOKEN import TOKEN
 from aiogram import Dispatcher, Bot, executor, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
@@ -6,6 +9,7 @@ from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.dispatcher.handler import CancelHandler
 from aiogram.dispatcher.middlewares import BaseMiddleware
 from typing import List, Union
+from PIL import Image
 import mysql.connector
 import random
 import asyncio
@@ -214,29 +218,53 @@ async def handle_albums(message: types.Message, album: List[types.Message]):
     last_name = fake_state[1]
     phone_number = fake_state[2]
     user_message = fake_state[3]
-
+    count = 0
     media_group = types.MediaGroup()
+    photos_name = []
     for obj in album:
+        count += 1
+        print(obj)
         if obj.photo:
             file_id = obj.photo[-1].file_id
+            file_info = await bot.get_file(file_id)
+            downloaded_file = await bot.download_file(file_info.file_path)
+            file_name = file_info.file_path.split("/")[1]
+            rand_len = random.randint(1, len(string_text) - 1)
+            rand_choice = string_text[: rand_len]
+            hash_file_name = rand_choice + file_name
+            upload_dir = os.path.join(os.getcwd(), "uploads")
+            if not os.path.exists(upload_dir):
+                os.makedirs(upload_dir)
+            dest = os.path.join(upload_dir, file_name)
+
+            if os.path.exists(dest):
+                string = "a45345lppskraw2-48023979weujfakjw3ofna-0j312-3emraw0-430-24e0a-j231r-0aw43m0-1k3e-amfpa"
+                rand_len = random.randint(1, len(string) - 1)
+                rand_choice = string[: rand_len]
+                os.rename(f"uploads/{file_name}", f"uploads/{rand_choice}" + file_name)
+            with open(dest, "wb") as buffer:
+                shutil.copyfileobj(downloaded_file, buffer)
+            image = Image.open(dest)
+            new_image = image.resize((500, 500))
+            new_image.save(f"uploads/saved_{file_name}")
+            os.remove(dest)
+
         else:
             file_id = obj[obj.content_type].file_id
 
         try:
-            # We can also add a caption to each file by specifying `"caption": "text"`
-            media_group.attach({"media": file_id, "type": obj.content_type, "caption": f"FirstName: {first_name}\n"
-                                                                                       f"LastName: {last_name}\n"
-                                                                                       f"PhoneNumber: {phone_number}\n"
-                                                                                       f"UserMessage: {user_message}"})
+            if count == 1:
+                media_group.attach({"media": file_id, "type": obj.content_type, "caption":  f"FirstName: {first_name}\n"
+                                                                                            f"LastName: {last_name}\n"
+                                                                                            f"PhoneNumber: {phone_number}\n"
+                                                                                            f"UserMessage: {user_message}"})
+            else:
+                media_group.attach({"media": file_id, "type": obj.content_type})
         except ValueError:
             return await message.answer("This type of album is not supported by aiogram.")
 
     await bot.send_media_group(chat_id=channel_id, media=media_group)
 
-    # await bot.send_message(chat_id=channel_id, text=f"First Name: <b>{first_name}</b>\n"
-    #                                                     f"Last Name: <b>{last_name}</b>\n"
-    #                                                 f"Phone Number: <b>{phone_number}</b>\n"
-    #                                                 f"Message: <b>{user_message}</b>\n", parse_mode='HTML')
 
 if __name__ == '__main__':
     dp.middleware.setup(AlbumMiddleware())
